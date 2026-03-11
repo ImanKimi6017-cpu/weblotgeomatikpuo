@@ -15,14 +15,15 @@ st.set_page_config(page_title="PUO Geomatics Pro", layout="wide")
 
 LOGO_URL = "https://th.bing.com/th/id/R.7845becf994d6c6a0b2afe8147ecbbf4?rik=l%2bMV7v5yBzHn5g&riu=http%3a%2f%2f1.bp.blogspot.com%2f-wQXM8Oe-ImA%2fTXrQ7Npc7uI%2fAAAAAAAAE34%2f2ref_vtbT5k%2fs1600%2fPoliteknik%252BUngku%252BOmar.png&ehk=IjCxLkjx3O7Lb2LSgWsvprPJ5Dvm%2fAHQVB35yucEm6Q%3d&risl=&pid=ImgRaw&r=0"
 
-# 2. SISTEM LOGIN
-USER_FILE = "users.json"
+# 2. SISTEM LOGIN (3 USER - 1 PASSWORD)
 def load_users():
-    if os.path.exists(USER_FILE):
-        try:
-            with open(USER_FILE, "r") as f: return json.load(f)
-        except: return {"01DGU24F1059": "ADMIN1234"}
-    return {"01DGU24F1059": "ADMIN1234"}
+    # Password yang sama untuk semua 3 user
+    password_kongsi = "ADMIN1234" 
+    return {
+        "01DGU24F1059": password_kongsi,
+        "01DGU24F1060": password_kongsi,
+        "01DGU24F1061": password_kongsi
+    }
 
 if "user_db" not in st.session_state:
     st.session_state["user_db"] = load_users()
@@ -117,20 +118,20 @@ if uploaded_file:
         # --- FUNGSI GEOJSON LENGKAP (STESEN, GARISAN, LOT) ---
         features = []
         for i in range(len(df)):
-            # 1. Point Feature
+            # 1. Point Feature (Stesen)
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [df.iloc[i]['lon'], df.iloc[i]['lat']]},
                 "properties": {"Jenis": "Stesen", "STN": int(df.iloc[i]['STN']), "E": df.iloc[i]['E'], "N": df.iloc[i]['N']}
             })
-            # 2. Line Feature
+            # 2. Line Feature (Sempadan)
             p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "LineString", "coordinates": [[p1['lon'], p1['lat']], [p2['lon'], p2['lat']]]},
                 "properties": {"Jenis": "Sempadan", "Dari": int(p1['STN']), "Ke": int(p2['STN']), "Bering": berings[i], "Jarak": dists[i]}
             })
-        # 3. Polygon Feature
+        # 3. Polygon Feature (Lot)
         features.append({
             "type": "Feature",
             "geometry": {"type": "Polygon", "coordinates": [[ [df.iloc[i]['lon'], df.iloc[i]['lat']] for i in range(len(df)) ] + [[df.iloc[0]['lon'], df.iloc[0]['lat']]]]},
