@@ -15,7 +15,7 @@ st.set_page_config(page_title="PUO Geomatics Pro", layout="wide")
 
 LOGO_URL = "https://th.bing.com/th/id/R.7845becf994d6c6a0b2afe8147ecbbf4?rik=l%2bMV7v5yBzHn5g&riu=http%3a%2f%2f1.bp.blogspot.com%2f-wQXM8Oe-ImA%2fTXrQ7Npc7uI%2fAAAAAAAAE34%2f2ref_vtbT5k%2fs1600%2fPoliteknik%252BUngku%252BOmar.png&ehk=IjCxLkjx3O7Lb2LSgWsvprPJ5Dvm%2fAHQVB35yucEm6Q%3d&risl=&pid=ImgRaw&r=0"
 
-# 2. SISTEM LOGIN & TUKAR PASSWORD
+# 2. SISTEM LOGIN & TUKAR PASSWORD (PERSISTENT)
 USER_FILE = "users.json"
 
 def load_users():
@@ -36,7 +36,8 @@ def load_users():
     return default_users
 
 def save_users(users):
-    with open(USER_FILE, "w") as f: json.dump(users, f)
+    with open(USER_FILE, "w") as f:
+        json.dump(users, f)
 
 if "user_db" not in st.session_state:
     st.session_state["user_db"] = load_users()
@@ -63,15 +64,15 @@ def auth_interface():
         with tab2:
             st.subheader("Set Semula Kata Laluan")
             with st.form("forgot_form"):
-                f_id = st.text_input("ID Pengguna")
-                new_pw = st.text_input("Password Baru", type="password")
-                confirm_pw = st.text_input("Sahkan Password Baru", type="password")
+                f_id = st.text_input("Masukkan ID Pengguna")
+                new_pw = st.text_input("Kata Laluan Baru", type="password")
+                confirm_pw = st.text_input("Sahkan Kata Laluan Baru", type="password")
                 if st.form_submit_button("Kemaskini Password", use_container_width=True):
                     if f_id in st.session_state["user_db"]:
                         if new_pw == confirm_pw and len(new_pw) > 0:
                             st.session_state["user_db"][f_id] = new_pw
                             save_users(st.session_state["user_db"])
-                            st.success(f"Berjaya! Sila Log Masuk.")
+                            st.success(f"Berjaya! Sila guna password baru untuk Log Masuk.")
                         else: st.error("Password tidak sama!")
                     else: st.error("ID tidak dijumpai!")
 
@@ -118,12 +119,21 @@ if uploaded_file:
         df_mod['E_adj'] = df_mod['E'] + off_e
         df_mod['N_adj'] = df_mod['N'] + off_n
         
-        lons, lats = tf.transform(df_mod['N_adj'].values if swap_en else df_mod['E_adj'].values, 
-                                 df_mod['E_adj'].values if swap_en else df_mod['N_adj'].values)
+        if swap_en:
+            lons, lats = tf.transform(df_mod['N_adj'].values, df_mod['E_adj'].values)
+        else:
+            lons, lats = tf.transform(df_mod['E_adj'].values, df_mod['N_adj'].values)
+        
         df['lat'], df['lon'] = lats, lons
         
+        # --- PENGIRAAN LUAS & PERIMETER ---
         coords = list(zip(df['E'], df['N']))
-        area_m2, perimeter_m = (Polygon(coords).area, Polygon(coords).length) if len(coords) >= 3 else (0.0, 0.0)
+        if len(coords) >= 3:
+            poly_calc = Polygon(coords)
+            area_m2 = poly_calc.area
+            perimeter_m = poly_calc.length
+        else:
+            area_m2, perimeter_m = 0.0, 0.0
 
         berings, dists = [], []
         for i in range(len(df)):
@@ -132,59 +142,75 @@ if uploaded_file:
             dists.append(round(dist_val, 3))
             berings.append(kira_bering(p1['E'], p1['N'], p2['E'], p2['N']))
 
+        # --- FUNGSI GEOJSON LENGKAP (KEKAL ASAL) ---
+        features = []
+        for i in range(len(df)):
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [df.iloc[i]['lon'], df.iloc[i]['lat']]},
+                "properties": {"Jenis": "Stesen", "STN": int(df.iloc[i]['STN']), "E": df.iloc[i]['E'], "N": df.iloc[i]['N']}
+            })
+            p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": [[p1['lon'], p1['lat']], [p2['lon'], p2['lat']]]},
+                "properties": {"Jenis": "Sempadan", "Dari": int(p1['STN']), "Ke": int(p2['STN']), "Bering": berings[i], "Jarak": dists[i]}
+            })
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [[ [df.iloc[i]['lon'], df.iloc[i]['lat']] for i in range(len(df)) ] + [[df.iloc[0]['lon'], df.iloc[0]['lat']]]]},
+            "properties": {"Jenis": "Lot Utama", "Luas_m2": round(area_m2, 3), "Perimeter_m": round(perimeter_m, 3)}
+        })
+        geojson_str = json.dumps({"type": "FeatureCollection", "features": features})
+
         # 5. PETA
         m = folium.Map(location=[df['lat'].mean(), df['lon'].mean()], zoom_start=21, max_zoom=24)
-        folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=24).add_to(m)
+        folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", attr="Google Satellite", name="Google Satellite", max_zoom=24).add_to(m)
         
         if show_polygon:
             folium.Polygon(
                 df[['lat', 'lon']].values.tolist(), 
-                color="#0000FF", fill=True, fill_opacity=0.1, weight=4, 
+                color="#0000FF", fill=True, fill_opacity=0.1, weight=4,
                 popup=f"<b>INFO LOT</b><br>Luas: {area_m2:.3f} m²<br>Perimeter: {perimeter_m:.3f} m"
             ).add_to(m)
 
         for i in range(len(df)):
-            stn = df.iloc[i]
+            stn_info = df.iloc[i]
             if show_labels:
-                popup_text = f"<b>STN: {int(stn['STN'])}</b><br>E: {stn['E']:.3f}<br>N: {stn['N']:.3f}"
+                popup_html = f"<b>STN: {int(stn_info['STN'])}</b><br>E: {stn_info['E']:.3f}<br>N: {stn_info['N']:.3f}"
                 folium.Marker(
-                    [stn['lat'], stn['lon']], 
-                    popup=folium.Popup(popup_text, max_width=200),
-                    icon=folium.DivIcon(html=f"<div style='color: white; background: red; border-radius: 50%; width: 24px; height: 24px; text-align: center; font-weight: bold; border: 2px solid white; line-height: 24px;'>{int(stn['STN'])}</div>")
+                    [stn_info['lat'], stn_info['lon']],
+                    popup=folium.Popup(popup_html, max_width=150),
+                    icon=folium.DivIcon(html=f"<div style='color: white; background: #FF0000; border-radius: 50%; width: 24px; height: 24px; text-align: center; font-weight: bold; line-height: 24px; border: 2px solid white;'>{int(stn_info['STN'])}</div>")
                 ).add_to(m)
             
             if show_dist_brg:
                 p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
-                folium.Marker(
-                    [(p1['lat']+p2['lat'])/2, (p1['lon']+p2['lon'])/2], 
-                    icon=folium.DivIcon(html=f"<div style='font-size: 8pt; color: #FF0000; font-weight: bold; width: 140px; text-align: center; text-shadow: 1px 1px 0 #FFF; margin-left: -70px;'>{berings[i]}<br><span style='color: black;'>{dists[i]}m</span></div>")
+                folium.Marker([(p1['lat']+p2['lat'])/2, (p1['lon']+p2['lon'])/2],
+                    icon=folium.DivIcon(html=f"<div style='font-size: 8pt; color: #FF0000; font-weight: bold; width: 140px; text-align: center; text-shadow: 1px 1px 0 #FFF; margin-top: -12px; margin-left: -70px;'>{berings[i]}<br><span style='color: black;'>{dists[i]}m</span></div>")
                 ).add_to(m)
 
         st_folium(m, width="100%", height=600, returned_objects=[])
         
-        # --- 6. JADUAL KOORDINAT & DATA ---
+        # --- 6. JADUAL KOORDINAT (BARU) ---
         st.subheader("📊 Jadual Koordinat & Data Sempadan")
-        
-        # Sediakan DataFrame untuk paparan jadual
         display_df = df[['STN', 'E', 'N']].copy()
         display_df['Bering'] = berings
         display_df['Jarak (m)'] = dists
-        
-        # Paparkan jadual
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        # METRIK BAWAH
+        # METRIK
         st.divider()
         col1, col2 = st.columns(2)
-        with col1: st.metric("📏 LUAS", f"{area_m2:.3f} m²")
-        with col2: st.metric("🛣️ PERIMETER", f"{perimeter_m:.3f} m")
+        with col1:
+            st.metric(label="📏 LUAS KESELURUHAN", value=f"{area_m2:.3f} m²")
+        with col2:
+            st.metric(label="🛣️ PERIMETER KESELURUHAN", value=f"{perimeter_m:.3f} m")
 
-        # DOWNLOAD BUTTON
-        features = []
-        for i in range(len(df)):
-            features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [df.iloc[i]['lon'], df.iloc[i]['lat']]}, "properties": {"STN": int(df.iloc[i]['STN'])}})
+        # DOWNLOAD BUTTON (SIDEBAR)
         st.sidebar.divider()
-        st.sidebar.download_button("💾 Download GeoJSON", json.dumps({"type": "FeatureCollection", "features": features}), "lot_lengkap.geojson")
+        st.sidebar.subheader("📂 Eksport Data QGIS")
+        st.sidebar.download_button(label="💾 Muat Turun GeoJSON Lengkap", data=geojson_str, file_name="lot_lengkap_puo.geojson", mime="application/geo+json")
 
     else: st.error("Ralat EPSG.")
 else: st.info("Sila muat naik fail CSV.")
