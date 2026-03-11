@@ -36,17 +36,33 @@ def auth_interface():
     _, col2, _ = st.columns([1, 1.8, 1])
     with col2:
         st.markdown(f"<div style='text-align: center;'><br><img src='{LOGO_URL}' width='80'><h2>Sistem Geomatik PUO</h2></div>", unsafe_allow_html=True)
-        tab1, _ = st.tabs(["🔒 Log Masuk", "📝 Daftar Akaun"])
+        tab1, tab2 = st.tabs(["🔒 Log Masuk", "❓ Bantuan"])
+        
         with tab1:
             with st.form("login_form"):
                 u_id = st.text_input("ID Pengguna")
                 u_pw = st.text_input("Kata Laluan", type="password")
-                if st.form_submit_button("Masuk", use_container_width=True):
+                submit = st.form_submit_button("Masuk", use_container_width=True)
+                
+                if submit:
                     if u_id in st.session_state["user_db"] and st.session_state["user_db"][u_id] == u_pw:
                         st.session_state["logged_in"] = True
                         st.session_state["current_user"] = u_id
                         st.rerun()
-                    else: st.error("ID atau Kata Laluan salah!")
+                    else:
+                        st.error("ID atau Kata Laluan salah!")
+        
+        with tab2:
+            st.info("### 🔑 Lupa Kata Laluan?")
+            st.write("Sila hubungi Pentadbir Sistem (Admin) untuk set semula kata laluan anda atau untuk pengesahan ID pengguna.")
+            st.markdown("""
+            **Langkah-langkah:**
+            1. Sediakan No. Kad Pengenalan/No. Pendaftaran.
+            2. Hubungi Admin Geomatik melalui WhatsApp.
+            3. Nyatakan masalah login anda.
+            """)
+            # Anda boleh tukar link di bawah ke WhatsApp anda sendiri
+            st.link_button("💬 Hubungi Admin", "https://wa.me/60123456789", use_container_width=True)
 
 if not st.session_state["logged_in"]:
     auth_interface(); st.stop()
