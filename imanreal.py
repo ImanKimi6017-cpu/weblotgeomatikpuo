@@ -15,15 +15,34 @@ st.set_page_config(page_title="PUO Geomatics Pro", layout="wide")
 
 LOGO_URL = "https://th.bing.com/th/id/R.7845becf994d6c6a0b2afe8147ecbbf4?rik=l%2bMV7v5yBzHn5g&riu=http%3a%2f%2f1.bp.blogspot.com%2f-wQXM8Oe-ImA%2fTXrQ7Npc7uI%2fAAAAAAAAE34%2f2ref_vtbT5k%2fs1600%2fPoliteknik%252BUngku%252BOmar.png&ehk=IjCxLkjx3O7Lb2LSgWsvprPJ5Dvm%2fAHQVB35yucEm6Q%3d&risl=&pid=ImgRaw&r=0"
 
-# 2. SISTEM LOGIN (3 USER - 1 PASSWORD)
+# 2. SISTEM LOGIN & TUKAR PASSWORD
+USER_FILE = "users.json"
+
 def load_users():
-    # Password yang sama untuk semua 3 user
-    password_kongsi = "ADMIN1234" 
-    return {
-        "01DGU24F1059": password_kongsi,
-        "01DGU24F1060": password_kongsi,
-        "01DGU24F1061": password_kongsi
+    # Data asal/default
+    default_pw = "ADMIN1234"
+    default_users = {
+        "01DGU24F1059": default_pw,
+        "01DGU24F1060": default_pw,
+        "01DGU24F1061": default_pw
     }
+    
+    if os.path.exists(USER_FILE):
+        try:
+            with open(USER_FILE, "r") as f:
+                saved_users = json.load(f)
+                # Gabungkan user baru jika ada dalam kod tapi tiada dalam json
+                for k, v in default_users.items():
+                    if k not in saved_users:
+                        saved_users[k] = v
+                return saved_users
+        except:
+            return default_users
+    return default_users
+
+def save_users(users):
+    with open(USER_FILE, "w") as f:
+        json.dump(users, f)
 
 if "user_db" not in st.session_state:
     st.session_state["user_db"] = load_users()
@@ -36,15 +55,13 @@ def auth_interface():
     _, col2, _ = st.columns([1, 1.8, 1])
     with col2:
         st.markdown(f"<div style='text-align: center;'><br><img src='{LOGO_URL}' width='80'><h2>Sistem Geomatik PUO</h2></div>", unsafe_allow_html=True)
-        tab1, tab2 = st.tabs(["🔒 Log Masuk", "❓ Bantuan"])
+        tab1, tab2 = st.tabs(["🔒 Log Masuk", "🔄 Tukar Password"])
         
         with tab1:
             with st.form("login_form"):
                 u_id = st.text_input("ID Pengguna")
                 u_pw = st.text_input("Kata Laluan", type="password")
-                submit = st.form_submit_button("Masuk", use_container_width=True)
-                
-                if submit:
+                if st.form_submit_button("Masuk", use_container_width=True):
                     if u_id in st.session_state["user_db"] and st.session_state["user_db"][u_id] == u_pw:
                         st.session_state["logged_in"] = True
                         st.session_state["current_user"] = u_id
@@ -53,16 +70,22 @@ def auth_interface():
                         st.error("ID atau Kata Laluan salah!")
         
         with tab2:
-            st.info("### 🔑 Lupa Kata Laluan?")
-            st.write("Sila hubungi Pentadbir Sistem (Admin) untuk set semula kata laluan anda atau untuk pengesahan ID pengguna.")
-            st.markdown("""
-            **Langkah-langkah:**
-            1. Sediakan No. Kad Pengenalan/No. Pendaftaran.
-            2. Hubungi Admin Geomatik melalui WhatsApp.
-            3. Nyatakan masalah login anda.
-            """)
-            # Anda boleh tukar link di bawah ke WhatsApp anda sendiri
-            st.link_button("💬 Hubungi Admin", "https://wa.me/60123456789", use_container_width=True)
+            st.subheader("Set Semula Kata Laluan")
+            with st.form("forgot_form"):
+                f_id = st.text_input("Masukkan ID Pengguna Anda")
+                new_pw = st.text_input("Masukkan Kata Laluan Baru", type="password")
+                confirm_pw = st.text_input("Sahkan Kata Laluan Baru", type="password")
+                
+                if st.form_submit_button("Kemaskini Password", use_container_width=True):
+                    if f_id in st.session_state["user_db"]:
+                        if new_pw == confirm_pw and len(new_pw) > 0:
+                            st.session_state["user_db"][f_id] = new_pw
+                            save_users(st.session_state["user_db"])
+                            st.success(f"Password untuk {f_id} telah ditukar! Sila ke tab Log Masuk.")
+                        else:
+                            st.error("Kata laluan tidak sama atau kosong!")
+                    else:
+                        st.error("ID Pengguna tidak dijumpai dalam sistem!")
 
 if not st.session_state["logged_in"]:
     auth_interface(); st.stop()
@@ -113,7 +136,6 @@ if uploaded_file:
         
         df['lat'], df['lon'] = lats, lons
         
-        # --- PENGIRAAN LUAS & PERIMETER ---
         coords = list(zip(df['E'], df['N']))
         if len(coords) >= 3:
             poly_calc = Polygon(coords)
@@ -128,26 +150,21 @@ if uploaded_file:
             dist_val = math.sqrt((p2['E']-p1['E'])**2 + (p2['N']-p1['N'])**2)
             dists.append(round(dist_val, 3))
             berings.append(kira_bering(p1['E'], p1['N'], p2['E'], p2['N']))
-        df['Jarak_Seterusnya'] = dists
-        df['Bering_Seterusnya'] = berings
 
-        # --- FUNGSI GEOJSON LENGKAP (STESEN, GARISAN, LOT) ---
+        # GEOJSON
         features = []
         for i in range(len(df)):
-            # 1. Point Feature (Stesen)
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [df.iloc[i]['lon'], df.iloc[i]['lat']]},
                 "properties": {"Jenis": "Stesen", "STN": int(df.iloc[i]['STN']), "E": df.iloc[i]['E'], "N": df.iloc[i]['N']}
             })
-            # 2. Line Feature (Sempadan)
             p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "LineString", "coordinates": [[p1['lon'], p1['lat']], [p2['lon'], p2['lat']]]},
                 "properties": {"Jenis": "Sempadan", "Dari": int(p1['STN']), "Ke": int(p2['STN']), "Bering": berings[i], "Jarak": dists[i]}
             })
-        # 3. Polygon Feature (Lot)
         features.append({
             "type": "Feature",
             "geometry": {"type": "Polygon", "coordinates": [[ [df.iloc[i]['lon'], df.iloc[i]['lat']] for i in range(len(df)) ] + [[df.iloc[0]['lon'], df.iloc[0]['lat']]]]},
@@ -163,7 +180,6 @@ if uploaded_file:
         m = folium.Map(location=[df['lat'].mean(), df['lon'].mean()], zoom_start=21, max_zoom=24)
         folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", attr="Google Satellite", name="Google Satellite", max_zoom=24).add_to(m)
         
-        # Polygon dengan Pop-up Luas
         folium.Polygon(
             df[['lat', 'lon']].values.tolist(), 
             color="#0000FF", fill=True, fill_opacity=0.1, weight=4,
@@ -173,7 +189,6 @@ if uploaded_file:
         for i in range(len(df)):
             stn_info = df.iloc[i]
             popup_html = f"<b>STN: {int(stn_info['STN'])}</b><br>E: {stn_info['E']:.3f}<br>N: {stn_info['N']:.3f}"
-            
             if show_labels:
                 folium.Marker(
                     [stn_info['lat'], stn_info['lon']],
@@ -190,7 +205,6 @@ if uploaded_file:
 
         st_folium(m, width="100%", height=600, returned_objects=[])
         
-        # --- PAPARAN METRIK ---
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
@@ -198,6 +212,5 @@ if uploaded_file:
             st.write(f"*(Persamaan: {(area_m2/4046.86):.4f} Ekar / {(area_m2/10000):.4f} Hektar)*")
         with col2:
             st.metric(label="🛣️ PERIMETER KESELURUHAN", value=f"{perimeter_m:.3f} m")
-
     else: st.error("Ralat EPSG.")
 else: st.info("Sila muat naik fail CSV.")
