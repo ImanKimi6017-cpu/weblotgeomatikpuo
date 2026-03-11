@@ -5,8 +5,7 @@ import folium
 from streamlit_folium import st_folium
 import math
 from pyproj import Transformer
-import geopandas as gpd
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon
 import json
 import os
 
@@ -124,62 +123,52 @@ if uploaded_file:
             p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
             dist_val = math.sqrt((p2['E']-p1['E'])**2 + (p2['N']-p1['N'])**2)
             angle = kira_bering_raw(p1['E'], p1['N'], p2['E'], p2['N'])
+            
+            # --- LOGIK TERBALIKKAN BERING (BACK BEARING) ---
+            # Jika anda mahu automatik terbalikkan semua bering peta:
+            angle_reversed = (angle + 180) % 360
+            
             dists.append(round(dist_val, 3))
-            berings_deg.append(angle)
-            berings_fmt.append(format_bering(angle))
-
-        # GEOJSON LENGKAP
-        features = []
-        for i in range(len(df)):
-            features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [df.iloc[i]['lon'], df.iloc[i]['lat']]}, "properties": {"Jenis": "Stesen", "STN": int(df.iloc[i]['STN']), "E": df.iloc[i]['E'], "N": df.iloc[i]['N']}})
-            p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
-            features.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[p1['lon'], p1['lat']], [p2['lon'], p2['lat']]]}, "properties": {"Jenis": "Sempadan", "Dari": int(p1['STN']), "Ke": int(p2['STN']), "Bering": berings_fmt[i], "Jarak": dists[i]}})
-        features.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[ [df.iloc[i]['lon'], df.iloc[i]['lat']] for i in range(len(df)) ] + [[df.iloc[0]['lon'], df.iloc[0]['lat']]]]}, "properties": {"Jenis": "Lot Utama", "Luas_m2": round(area_m2, 3)}})
-        geojson_str = json.dumps({"type": "FeatureCollection", "features": features})
+            berings_deg.append(angle_reversed) # Simpan bering terbalik untuk paparan
+            berings_fmt.append(format_bering(angle_reversed))
 
         # 5. PETA
         m = folium.Map(location=[df['lat'].mean(), df['lon'].mean()], zoom_start=21, max_zoom=24)
         folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=24).add_to(m)
         
         if show_polygon:
-            folium.Polygon(df[['lat', 'lon']].values.tolist(), color="#0000FF", fill=True, fill_opacity=0.1, weight=4, popup=f"Luas: {area_m2:.3f} m²").add_to(m)
+            folium.Polygon(df[['lat', 'lon']].values.tolist(), color="#0000FF", fill=True, fill_opacity=0.1, weight=4).add_to(m)
 
         for i in range(len(df)):
             stn = df.iloc[i]
             if show_labels:
-                folium.Marker([stn['lat'], stn['lon']], popup=f"STN: {int(stn['STN'])}", 
+                folium.Marker([stn['lat'], stn['lon']], 
                     icon=folium.DivIcon(html=f"<div style='color: white; background: red; border-radius: 50%; width: 22px; height: 22px; text-align: center; font-weight: bold; border: 2px solid white; line-height: 20px; font-size: 9pt;'>{int(stn['STN'])}</div>")).add_to(m)
             
             if show_dist_brg:
                 p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
                 mid_lat, mid_lon = (p1['lat']+p2['lat'])/2, (p1['lon']+p2['lon'])/2
                 
-                # Kira rotation (tolak 90 supaya teks selari garisan)
+                # Kira rotation teks selari dengan garisan
                 rot = berings_deg[i] - 90
-                if 90 < berings_deg[i] < 270: rot += 180 # Supaya teks tak terbalik (upside down)
+                # Pastikan teks tidak upside down
+                if 90 < (berings_deg[i] % 360) < 270: rot += 180 
 
                 folium.Marker([mid_lat, mid_lon],
                     icon=folium.DivIcon(html=f"""
-                        <div style="transform: rotate({rot}deg); transform-origin: center; width: 150px; margin-left: -75px; text-align: center;">
-                            <div style="font-size: 8pt; color: #FF0000; font-weight: bold; text-shadow: 1px 1px 0 #FFF; margin-bottom: 2px;">{berings_fmt[i]}</div>
+                        <div style="transform: rotate({rot}deg); width: 150px; margin-left: -75px; text-align: center;">
+                            <div style="font-size: 8pt; color: #FF0000; font-weight: bold; text-shadow: 1px 1px 0 #FFF;">{berings_fmt[i]}</div>
                             <div style="font-size: 7pt; color: black; font-weight: bold; text-shadow: 1px 1px 0 #FFF; border-top: 1px solid rgba(255,0,0,0.3);">{dists[i]}m</div>
                         </div>""")).add_to(m)
 
         st_folium(m, width="100%", height=600, returned_objects=[])
         
-        # 6. JADUAL & METRIK
-        st.subheader("📊 Jadual Koordinat & Data Sempadan")
+        # 6. JADUAL (Kekalkan bering asal untuk data teknikal)
+        st.subheader("📊 Jadual Koordinat")
         display_df = df[['STN', 'E', 'N']].copy()
-        display_df['Bering'] = berings_fmt
+        display_df['Bering (Peta)'] = berings_fmt
         display_df['Jarak (m)'] = dists
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-        st.divider()
-        c1, c2 = st.columns(2)
-        c1.metric("📏 LUAS", f"{area_m2:.3f} m²")
-        c2.metric("🛣️ PERIMETER", f"{perimeter_m:.3f} m")
-
-        st.sidebar.divider()
-        st.sidebar.download_button("💾 Download GeoJSON", geojson_str, "lot_lengkap.geojson")
     else: st.error("Ralat EPSG.")
 else: st.info("Sila muat naik fail CSV.")
