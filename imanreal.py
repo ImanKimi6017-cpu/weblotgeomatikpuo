@@ -136,7 +136,6 @@ if uploaded_file:
         m = folium.Map(location=[df['lat'].mean(), df['lon'].mean()], zoom_start=21, max_zoom=24)
         folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=24).add_to(m)
         
-        # POP-UP UNTUK POLYGON
         if show_polygon:
             folium.Polygon(
                 df[['lat', 'lon']].values.tolist(), 
@@ -146,7 +145,6 @@ if uploaded_file:
 
         for i in range(len(df)):
             stn = df.iloc[i]
-            # POP-UP UNTUK MARKER (STESEN)
             if show_labels:
                 popup_text = f"<b>STN: {int(stn['STN'])}</b><br>E: {stn['E']:.3f}<br>N: {stn['N']:.3f}"
                 folium.Marker(
@@ -164,6 +162,17 @@ if uploaded_file:
 
         st_folium(m, width="100%", height=600, returned_objects=[])
         
+        # --- 6. JADUAL KOORDINAT & DATA ---
+        st.subheader("📊 Jadual Koordinat & Data Sempadan")
+        
+        # Sediakan DataFrame untuk paparan jadual
+        display_df = df[['STN', 'E', 'N']].copy()
+        display_df['Bering'] = berings
+        display_df['Jarak (m)'] = dists
+        
+        # Paparkan jadual
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
         # METRIK BAWAH
         st.divider()
         col1, col2 = st.columns(2)
