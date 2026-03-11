@@ -104,7 +104,7 @@ epsg_input = st.sidebar.text_input("Kod EPSG", value="4390")
 swap_en = st.sidebar.checkbox("Swap E/N", value=False)
 show_labels = st.sidebar.checkbox("Label STN", value=True)
 show_dist_brg = st.sidebar.checkbox("Bering & Jarak", value=True)
-show_polygon = st.sidebar.checkbox("Paparan Poligon/Lot", value=True) # <-- INI BARU
+show_polygon = st.sidebar.checkbox("Paparan Poligon/Lot", value=True)
 
 # 4. MAIN LOGIC
 uploaded_file = st.sidebar.file_uploader("Muat naik CSV (STN, E, N)", type=["csv"])
@@ -132,39 +132,50 @@ if uploaded_file:
             dists.append(round(dist_val, 3))
             berings.append(kira_bering(p1['E'], p1['N'], p2['E'], p2['N']))
 
-        # GEOJSON EXPORT
-        features = []
-        for i in range(len(df)):
-            features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [df.iloc[i]['lon'], df.iloc[i]['lat']]}, "properties": {"STN": int(df.iloc[i]['STN']), "E": df.iloc[i]['E'], "N": df.iloc[i]['N']}})
-            p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
-            features.append({"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[p1['lon'], p1['lat']], [p2['lon'], p2['lat']]]}, "properties": {"Bering": berings[i], "Jarak": dists[i]}})
-        features.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[ [df.iloc[i]['lon'], df.iloc[i]['lat']] for i in range(len(df)) ] + [[df.iloc[0]['lon'], df.iloc[0]['lat']]]]}, "properties": {"Luas_m2": round(area_m2, 3)}})
-        
-        st.sidebar.divider()
-        st.sidebar.download_button("💾 Download GeoJSON", json.dumps({"type": "FeatureCollection", "features": features}), "lot_lengkap.geojson")
-
         # 5. PETA
         m = folium.Map(location=[df['lat'].mean(), df['lon'].mean()], zoom_start=21, max_zoom=24)
         folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", attr="Google", name="Google Satellite", max_zoom=24).add_to(m)
         
-        # LOGIK SHOW/HIDE POLYGON
+        # POP-UP UNTUK POLYGON
         if show_polygon:
-            folium.Polygon(df[['lat', 'lon']].values.tolist(), color="#0000FF", fill=True, fill_opacity=0.1, weight=4, popup=f"Luas: {area_m2:.3f} m²").add_to(m)
+            folium.Polygon(
+                df[['lat', 'lon']].values.tolist(), 
+                color="#0000FF", fill=True, fill_opacity=0.1, weight=4, 
+                popup=f"<b>INFO LOT</b><br>Luas: {area_m2:.3f} m²<br>Perimeter: {perimeter_m:.3f} m"
+            ).add_to(m)
 
         for i in range(len(df)):
             stn = df.iloc[i]
+            # POP-UP UNTUK MARKER (STESEN)
             if show_labels:
-                folium.Marker([stn['lat'], stn['lon']], icon=folium.DivIcon(html=f"<div style='color: white; background: red; border-radius: 50%; width: 24px; height: 24px; text-align: center; font-weight: bold; border: 2px solid white;'>{int(stn['STN'])}</div>")).add_to(m)
+                popup_text = f"<b>STN: {int(stn['STN'])}</b><br>E: {stn['E']:.3f}<br>N: {stn['N']:.3f}"
+                folium.Marker(
+                    [stn['lat'], stn['lon']], 
+                    popup=folium.Popup(popup_text, max_width=200),
+                    icon=folium.DivIcon(html=f"<div style='color: white; background: red; border-radius: 50%; width: 24px; height: 24px; text-align: center; font-weight: bold; border: 2px solid white; line-height: 24px;'>{int(stn['STN'])}</div>")
+                ).add_to(m)
             
             if show_dist_brg:
                 p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
-                folium.Marker([(p1['lat']+p2['lat'])/2, (p1['lon']+p2['lon'])/2], icon=folium.DivIcon(html=f"<div style='font-size: 8pt; color: #FF0000; font-weight: bold; width: 140px; text-align: center; text-shadow: 1px 1px 0 #FFF; margin-left: -70px;'>{berings[i]}<br><span style='color: black;'>{dists[i]}m</span></div>")).add_to(m)
+                folium.Marker(
+                    [(p1['lat']+p2['lat'])/2, (p1['lon']+p2['lon'])/2], 
+                    icon=folium.DivIcon(html=f"<div style='font-size: 8pt; color: #FF0000; font-weight: bold; width: 140px; text-align: center; text-shadow: 1px 1px 0 #FFF; margin-left: -70px;'>{berings[i]}<br><span style='color: black;'>{dists[i]}m</span></div>")
+                ).add_to(m)
 
         st_folium(m, width="100%", height=600, returned_objects=[])
         
+        # METRIK BAWAH
         st.divider()
         col1, col2 = st.columns(2)
         with col1: st.metric("📏 LUAS", f"{area_m2:.3f} m²")
         with col2: st.metric("🛣️ PERIMETER", f"{perimeter_m:.3f} m")
+
+        # DOWNLOAD BUTTON
+        features = []
+        for i in range(len(df)):
+            features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [df.iloc[i]['lon'], df.iloc[i]['lat']]}, "properties": {"STN": int(df.iloc[i]['STN'])}})
+        st.sidebar.divider()
+        st.sidebar.download_button("💾 Download GeoJSON", json.dumps({"type": "FeatureCollection", "features": features}), "lot_lengkap.geojson")
+
     else: st.error("Ralat EPSG.")
 else: st.info("Sila muat naik fail CSV.")
