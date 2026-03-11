@@ -96,21 +96,41 @@ if uploaded_file:
         
         df['lat'], df['lon'] = lats, lons
         
-        # PENGIRAAN LUAS (MENGGUNAKAN KOORDINAT ASAL E, N)
+        # --- PENGIRAAN LUAS & PERIMETER ---
         coords = list(zip(df['E'], df['N']))
         if len(coords) >= 3:
             poly_calc = Polygon(coords)
             area_m2 = poly_calc.area
+            perimeter_m = poly_calc.length # Kira perimeter
         else:
             area_m2 = 0.0
+            perimeter_m = 0.0
 
         berings, dists = [], []
         for i in range(len(df)):
             p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
-            dists.append(round(math.sqrt((p2['E']-p1['E'])**2 + (p2['N']-p1['N'])**2), 3))
+            dist_val = math.sqrt((p2['E']-p1['E'])**2 + (p2['N']-p1['N'])**2)
+            dists.append(round(dist_val, 3))
             berings.append(kira_bering(p1['E'], p1['N'], p2['E'], p2['N']))
+        
         df['Jarak_Seterusnya'] = dists
         df['Bering_Seterusnya'] = berings
+
+        # --- FUNGSI GEOJSON UNTUK EKSPORT ---
+        # Bina Polygon menggunakan Lat/Lon untuk GeoJSON
+        geojson_poly = Polygon(zip(df['lon'], df['lat']))
+        gdf = gpd.GeoDataFrame(index=[0], crs='epsg:4326', geometry=[geojson_poly])
+        gdf['Luas_m2'] = round(area_m2, 3)
+        gdf['Perimeter_m'] = round(perimeter_m, 3)
+        geojson_str = gdf.to_json()
+
+        st.sidebar.divider()
+        st.sidebar.download_button(
+            label="📂 Muat Turun GeoJSON",
+            data=geojson_str,
+            file_name="lot_survey.geojson",
+            mime="application/geo+json"
+        )
 
         # 5. PETA
         m = folium.Map(location=[df['lat'].mean(), df['lon'].mean()], zoom_start=21, max_zoom=24)
@@ -121,7 +141,6 @@ if uploaded_file:
             max_zoom=24
         ).add_to(m)
         
-        # Garisan Terabas Biru
         folium.Polygon(
             df[['lat', 'lon']].values.tolist(), 
             color="#0000FF", 
@@ -131,7 +150,6 @@ if uploaded_file:
         ).add_to(m)
 
         for i in range(len(df)):
-            # STESEN BULATAN MERAH
             if show_labels:
                 folium.Marker([df.iloc[i]['lat'], df.iloc[i]['lon']],
                     icon=folium.DivIcon(html=f"""
@@ -141,7 +159,6 @@ if uploaded_file:
                         </div>""")
                 ).add_to(m)
             
-            # BERING (MERAH) & JARAK (HITAM)
             if show_dist_brg:
                 p1, p2 = df.iloc[i], df.iloc[(i+1)%len(df)]
                 mid_lat, mid_lon = (p1['lat']+p2['lat'])/2, (p1['lon']+p2['lon'])/2
@@ -154,15 +171,16 @@ if uploaded_file:
                         </div>""")
                 ).add_to(m)
 
-        # PAPARAN PETA DAN METRIK LUAS
         st_folium(m, width="100%", height=600, returned_objects=[])
         
-        # PAPARAN LUAS YANG LEBIH BESAR
+        # --- PAPARAN METRIK ---
         st.divider()
-        col_area, _ = st.columns([1, 1])
-        with col_area:
+        col1, col2 = st.columns(2)
+        with col1:
             st.metric(label="📏 LUAS KESELURUHAN", value=f"{area_m2:.3f} m²")
             st.write(f"*(Persamaan: {(area_m2/4046.86):.4f} Ekar / {(area_m2/10000):.4f} Hektar)*")
+        with col2:
+            st.metric(label="🛣️ PERIMETER KESELURUHAN", value=f"{perimeter_m:.3f} m")
 
     else: st.error("Ralat EPSG.")
 else: st.info("Sila muat naik fail CSV.")
