@@ -96,12 +96,12 @@ if uploaded_file:
         
         df['lat'], df['lon'] = lats, lons
         
-        # --- PENGIRAAN LUAS & PERIMETER ---
+        # PENGIRAAN LUAS & PERIMETER
         coords = list(zip(df['E'], df['N']))
         if len(coords) >= 3:
             poly_calc = Polygon(coords)
             area_m2 = poly_calc.area
-            perimeter_m = poly_calc.length # Kira perimeter
+            perimeter_m = poly_calc.length
         else:
             area_m2 = 0.0
             perimeter_m = 0.0
@@ -116,8 +116,7 @@ if uploaded_file:
         df['Jarak_Seterusnya'] = dists
         df['Bering_Seterusnya'] = berings
 
-        # --- FUNGSI GEOJSON UNTUK EKSPORT ---
-        # Bina Polygon menggunakan Lat/Lon untuk GeoJSON
+        # EKSPORT GEOJSON
         geojson_poly = Polygon(zip(df['lon'], df['lat']))
         gdf = gpd.GeoDataFrame(index=[0], crs='epsg:4326', geometry=[geojson_poly])
         gdf['Luas_m2'] = round(area_m2, 3)
@@ -125,37 +124,45 @@ if uploaded_file:
         geojson_str = gdf.to_json()
 
         st.sidebar.divider()
-        st.sidebar.download_button(
-            label="📂 Muat Turun GeoJSON",
-            data=geojson_str,
-            file_name="lot_survey.geojson",
-            mime="application/geo+json"
-        )
+        st.sidebar.download_button(label="📂 Muat Turun GeoJSON", data=geojson_str, file_name="lot_survey.geojson", mime="application/geo+json")
 
         # 5. PETA
         m = folium.Map(location=[df['lat'].mean(), df['lon'].mean()], zoom_start=21, max_zoom=24)
-        folium.TileLayer(
-            tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-            attr="Google Satellite",
-            name="Google Satellite",
-            max_zoom=24
-        ).add_to(m)
+        folium.TileLayer(tiles="https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", attr="Google Satellite", name="Google Satellite", max_zoom=24).add_to(m)
         
+        # Polygon dengan Pop-up Luas
         folium.Polygon(
             df[['lat', 'lon']].values.tolist(), 
             color="#0000FF", 
             fill=True, 
             fill_opacity=0.1, 
-            weight=4
+            weight=4,
+            popup=f"Luas: {area_m2:.3f} m²<br>Perimeter: {perimeter_m:.3f} m"
         ).add_to(m)
 
         for i in range(len(df)):
+            # --- TAMBAH POP-UP PADA MARKER ---
+            stn_info = df.iloc[i]
+            popup_html = f"""
+                <div style="font-family: Arial; font-size: 12px;">
+                    <b>STN: {int(stn_info['STN'])}</b><br>
+                    <hr style="margin: 5px 0;">
+                    E: {stn_info['E']:.3f}<br>
+                    N: {stn_info['N']:.3f}<br>
+                    <hr style="margin: 5px 0;">
+                    Lat: {stn_info['lat']:.6f}<br>
+                    Lon: {stn_info['lon']:.6f}
+                </div>
+            """
+            
             if show_labels:
-                folium.Marker([df.iloc[i]['lat'], df.iloc[i]['lon']],
+                folium.Marker(
+                    [stn_info['lat'], stn_info['lon']],
+                    popup=folium.Popup(popup_html, max_width=200),
                     icon=folium.DivIcon(html=f"""
                         <div style='color: white; background: #FF0000; border-radius: 50%; width: 24px; height: 24px; 
                         text-align: center; font-weight: bold; line-height: 24px; border: 2px solid white;'>
-                            {int(df.iloc[i]['STN'])}
+                            {int(stn_info['STN'])}
                         </div>""")
                 ).add_to(m)
             
@@ -173,7 +180,6 @@ if uploaded_file:
 
         st_folium(m, width="100%", height=600, returned_objects=[])
         
-        # --- PAPARAN METRIK ---
         st.divider()
         col1, col2 = st.columns(2)
         with col1:
